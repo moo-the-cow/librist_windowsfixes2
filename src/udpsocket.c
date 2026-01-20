@@ -378,7 +378,7 @@ int udpsocket_close(int sd)
 #endif
 }
 
-int udpsocket_parse_url_parameters(const char *url, udpsocket_url_param_t *params, int max_params,
+int udpsocket_parse_url_parameters(char *url, udpsocket_url_param_t *params, int max_params,
 	uint32_t *clean_url_len)
 {
 	char* query = NULL;
