@@ -432,6 +432,7 @@ struct rist_sender {
 	/* Recovery */
 	uint32_t seq_index[UINT16_SIZE];
 	size_t sender_recover_min_time;
+	size_t sender_queue_buffer_size;
 
 	/* Reporting id */
 	intptr_t id;
