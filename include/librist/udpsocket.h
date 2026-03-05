@@ -137,7 +137,16 @@ RIST_API int udpsocket_recv(int sd, void *buf, size_t size);
 RIST_API int udpsocket_recvfrom(int sd, void *buf, size_t size, int flags, struct sockaddr *addr, socklen_t *addr_len);
 RIST_API int udpsocket_close(int sd);
 RIST_API int udpsocket_parse_url(char *url, char *address, int address_maxlen, uint16_t *port, int *local);
-RIST_API int udpsocket_parse_url_parameters(const char *url, udpsocket_url_param_t *params,
+/**
+ * @brief Parses a URL and updates the list of parameters.
+ *
+ * @param url: The url to parse, note that the url string is modified!
+ * @param params: The parameter list to populate.
+ * @param max_params: The length of the parameter list.
+ * @clean_url_len: The length of the resource path in the URL.
+ * @return the number of url parameters
+ */
+RIST_API int udpsocket_parse_url_parameters(char *url, udpsocket_url_param_t *params,
          int max_params, uint32_t *clean_url_len);
 
 
