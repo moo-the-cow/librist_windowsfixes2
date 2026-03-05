@@ -45,7 +45,7 @@ void remove_peer_from_flow(struct rist_peer *peer);
 int parse_url_udp_options(const char* url, struct rist_udp_config *output_udp_config)
 {
 	uint32_t clean_url_len = 0;
-	const char* query = NULL;
+	char* query = NULL;
 	uint32_t prefix_len = 0;
 	struct udpsocket_url_param url_params[32];
 	int num_params = 0;
