@@ -55,10 +55,14 @@ int parse_url_udp_options(const char* url, struct rist_udp_config *output_udp_co
 	if (!url || !url[0] || !output_udp_config)
 		return -1;
 
-	query = strchr( url, '/' );
+	char *tmp_url = strdup( url );
+	if (!tmp_url)
+		return -1;
+
+	query = strchr( tmp_url, '/' );
 	if (query != NULL) {
-		prefix_len = (uint32_t)(query - url);
-		strncpy((void *)output_udp_config->prefix, url, prefix_len >= 16 ? 15 : prefix_len - 1);
+		prefix_len = (uint32_t)(query - tmp_url);
+		strncpy((void *)output_udp_config->prefix, tmp_url, prefix_len >= 16 ? 15 : prefix_len - 1);
 		output_udp_config->prefix[prefix_len] = '\0';
 		// Convert to lower
 		char *p =(char *)output_udp_config->prefix;
@@ -76,7 +80,7 @@ int parse_url_udp_options(const char* url, struct rist_udp_config *output_udp_co
 	}
 
 	// Parse URL parameters
-	num_params = udpsocket_parse_url_parameters( url, url_params,
+	num_params = udpsocket_parse_url_parameters( tmp_url, url_params,
 			sizeof(url_params) / sizeof(struct udpsocket_url_param), &clean_url_len );
 	if (num_params > 0) {
 		for (i = 0; i < num_params; ++i) {
@@ -116,6 +120,8 @@ int parse_url_udp_options(const char* url, struct rist_udp_config *output_udp_co
 	}
 	strncpy((void *)output_udp_config->address, url, clean_url_len >= RIST_MAX_STRING_LONG ? RIST_MAX_STRING_LONG-1 : clean_url_len - 1);
 
+	free( tmp_url );
+
 	if (ret != 0)
 		return num_params;
 	else
@@ -134,7 +140,11 @@ int parse_url_options(const char* url, struct rist_peer_config *output_peer_conf
 		return -1;
 
 	// Parse URL parameters
-	num_params = udpsocket_parse_url_parameters( url, url_params,
+	char *tmp_url = strdup( url );
+	if (!tmp_url)
+		return -1;
+
+	num_params = udpsocket_parse_url_parameters( tmp_url, url_params,
 			sizeof(url_params) / sizeof(struct udpsocket_url_param), &clean_url_len );
 	if (num_params > 0) {
 		for (i = 0; i < num_params; ++i) {
@@ -244,6 +254,8 @@ int parse_url_options(const char* url, struct rist_peer_config *output_peer_conf
 		}
 	}
 	strncpy((void *)output_peer_config->address, url, clean_url_len >= RIST_MAX_STRING_LONG ? RIST_MAX_STRING_LONG-1 : clean_url_len - 1);
+
+	free( tmp_url );
 
 	if (ret != 0)
 		return num_params;
