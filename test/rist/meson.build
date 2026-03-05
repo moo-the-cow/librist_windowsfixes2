@@ -21,6 +21,20 @@ test_send_receive = executable('test_send_receive',
 									stdatomic_dependency
                                 ])
 
+test_sender_restart = executable('test_sender_restart',
+                                'test_sender_restart.c',
+                                extra_sources,
+                                include_directories: inc,
+                                link_with: librist,
+                                dependencies: [
+                                    threads,
+                                    tools_dependencies,
+									stdatomic_dependency
+                                ])
+
+
+###Sender restart test (bug fix verification)
+test('Sender restart test', test_sender_restart, args: ['5'], suite: ['regression', 'sender'])
 
 ###Simple profile tests
 #Unicast
