@@ -3067,7 +3067,6 @@ static void sender_send_nacks(struct rist_sender *ctx)
 static void sender_send_data(struct rist_sender *ctx, int maxcount)
 {
 	int counter = 0;
-	static size_t buffer_size = 0;
 
 	while (1) {
 		// If we fall behind, only empty 100 every 5ms (master loop)
@@ -3109,10 +3108,10 @@ static void sender_send_data(struct rist_sender *ctx, int maxcount)
 			}
 		}
 
-		// Keep only buffer_size items in buffer (this controls the size of the sender queue used on retries)
+		// Keep only sender_queue_buffer_size items in buffer (this controls the size of the sender queue used on retries)
 		int reduce = 0;
 		do {
-			size_t delete_idx = ((size_t)atomic_load_explicit(&ctx->sender_queue_read_index, memory_order_acquire) - buffer_size)& (ctx->sender_queue_max-1);
+			size_t delete_idx = ((size_t)atomic_load_explicit(&ctx->sender_queue_read_index, memory_order_acquire) - ctx->sender_queue_buffer_size)& (ctx->sender_queue_max-1);
 			ctx->sender_queue_delete_index = delete_idx;
 			if (ctx->sender_queue[delete_idx] && ctx->sender_queue[delete_idx]->data) {
 				/* perform the deletion based on the buffer size plus twice the configured/measured avg_rtt */
@@ -3121,8 +3120,8 @@ static void sender_send_data(struct rist_sender *ctx, int maxcount)
 				if (delay < ctx->sender_recover_min_time) {
 					// this will grow the buffer size by one
 					//rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
-					//		"Sender buffer size is too small, growing it to %zu, %zu\n", buffer_size, ctx->sender_queue_size);
-					buffer_size ++;
+					//		"Sender buffer size is too small, growing it to %zu, %zu\n", ctx->sender_queue_buffer_size, ctx->sender_queue_size);
+					ctx->sender_queue_buffer_size++;
 					reduce = 0;
 					// this continue will exit this while loop and continue in the outer loop
 					break;
@@ -3130,10 +3129,10 @@ static void sender_send_data(struct rist_sender *ctx, int maxcount)
 				else if (reduce == 0 && delay > ctx->sender_recover_min_time * 1.1) {
 					// this will shrink the buffer size by one
 					//rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
-					//		"Sender buffer size is too large, shrinking it to %zu, %zu\n", buffer_size, ctx->sender_queue_size);
-					if (buffer_size > 0) {
+					//		"Sender buffer size is too large, shrinking it to %zu, %zu\n", ctx->sender_queue_buffer_size, ctx->sender_queue_size);
+					if (ctx->sender_queue_buffer_size > 0) {
 						reduce = 1;
-						buffer_size--;
+						ctx->sender_queue_buffer_size--;
 					}
 				}
 				else {
