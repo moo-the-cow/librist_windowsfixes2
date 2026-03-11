@@ -2,7 +2,7 @@ librist - Reliable Internet Stream Transport
 ============================================
 
 A library implementing the Video Services Forum (VSF) Technical
-Recommendations TR-06-1 (Simple Profile) and TR-06-2 (Main/Advanced Profile).
+Recommendations TR-06-1 (Simple Profile) and TR-06-2 (Main Profile).
 
 
 Changes for 0.2.12 (2026-03-11):
@@ -12,6 +12,7 @@ New Features:
   - YAML config file support for ristsender/ristreceiver with native parser
   - Receiver session timeout API and --session-timeout CLI option
   - Peer statistics in receiver output
+  - Multicast interface (miface) in sender peer statistics JSON
   - New udp2udp tool for UDP relay
   - Profile selection (--profile) in rist2rist
   - Sender input queue statistics
@@ -28,6 +29,7 @@ Bug Fixes:
   - Fix const correctness in URL parameter parsing
   - Fix signed/unsigned comparison statements
   - Fix missing strings.h include in yamlparse.c
+  - Fix clock used when processing RR with lsr older than last SR
 
 Improvements:
   - Refactored sender queue management for better memory efficiency
@@ -39,6 +41,11 @@ Build System:
   - Fix false positive mbedtls detection in meson build
   - Use MbedTLS cmake config module
   - Check brew exists before calling (macOS)
+  - Fix compiler warnings in aes.h (Steve Lhomme)
+
+Acknowledgements:
+  - Dave Evans for RR clock fix
+  - Steve Lhomme for aes.h warning fixes
 
 
 Changes for 0.2.11 (2024-11-15):
