@@ -1,14 +1,194 @@
-Changes for 2.1.2 'Tesseract':
-----------------------------
+librist - Reliable Internet Stream Transport
+============================================
 
-Initial release of librist, a fast and portable implementation of the Video Services Forum (VSF) Technical Recommendations TR-06-1 and TR-06-2.
- - Support for all features of the TR-06-1, i.e. Simple Profile
- - Partial support for TR-06-2 including:
-   - PSK Encryption, AES 128 and 256
-   - Each side can initiate the connection
-   - Multipath is supported, load balanced or redundant, i.e. bonding of internet links
-   - One sender to many receivers, i.e. media server mode
-   - Tested packet recovery up to 50% continuous
-   - Sender to receiver jitter will not affect the output
-   - Fixed: Added mutex protection around FIFO access in rist_receiver_data_read2 to prevent rare race conditions and FIFO desynchronization when reading from multiple threads. Debug logs have been cleaned up for release.
-   - Changed: Replaced assertion in rist_receiver_data_read2 with error logging and a return code (-3) when FIFO desynchronization is detected, to avoid abrupt program termination and allow for graceful error handling.
+A library implementing the Video Services Forum (VSF) Technical
+Recommendations TR-06-1 (Simple Profile) and TR-06-2 (Main/Advanced Profile).
+
+
+Changes for 0.2.12 (2026-03-11):
+--------------------------------
+
+New Features:
+  - YAML config file support for ristsender/ristreceiver with native parser
+  - Receiver session timeout API and --session-timeout CLI option
+  - Peer statistics in receiver output
+  - New udp2udp tool for UDP relay
+  - Profile selection (--profile) in rist2rist
+  - Sender input queue statistics
+  - MPEG-TS null packet suppression byte tracking
+  - Differentiated bitrate tracking and sender stats API
+
+Bug Fixes:
+  - Fix premature stream stop on ECHO timeout for single-path (closes #196)
+  - Fix multi-sender queue issues (static buffer_size moved to context)
+  - Thread-safe FIFO access in rist_receiver_data_read2
+  - Fix memory leaks (authentication failures, sender queue)
+  - Fix OpenMetrics Content-Type header for Prometheus compatibility
+  - Fix RTT min/max invalid values
+  - Fix const correctness in URL parameter parsing
+  - Fix signed/unsigned comparison statements
+  - Fix missing strings.h include in yamlparse.c
+
+Improvements:
+  - Refactored sender queue management for better memory efficiency
+  - Improved UDP send reliability with EAGAIN retry
+  - Improved cname buffer safety
+  - Refactored flow timeout semantics
+
+Build System:
+  - Fix false positive mbedtls detection in meson build
+  - Use MbedTLS cmake config module
+  - Check brew exists before calling (macOS)
+
+
+Changes for 0.2.11 (2024-11-15):
+--------------------------------
+
+New Features:
+  - Ephemeral listening ports support (add/remove ports after initialization)
+  - New function rist_sender_npd_get for null packet deletion status
+  - New function rist_peer_get_cname to extract peer's private cname
+  - Enhanced CI test application with packet integrity checks
+
+Bug Fixes:
+  - Fixed potential socket deadlock condition under MS Windows
+  - Fixed ristsender confusion with multicast addresses sharing destination port
+  - Fixed compile warnings under different C++ versions
+  - Fixed theoretical IP checksum calculation issue
+  - Fixed ristreceiver closing when tun://@ used in output URL
+  - Fixed deadlock condition on FIFO overflow
+  - Fixed invalid verbose-level parameter handling
+  - Fixed binding to raw UDP socket
+  - Fixed memory allocation order in stats structures
+  - Fixed Mac homebrew arm64 build
+  - Fixed null packet deletion
+  - Fixed units on sender Prometheus stats
+  - Fixed keepalive packet data corruption bug
+  - Fixed improper RTP/RTCP classification (affected ST2110)
+  - Fixed flow timeout to follow session timeout
+  - Updated peer config timing_mode field handling
+
+Build:
+  - Updated meson version to avoid deprecated items
+
+Acknowledgements:
+  - Special thanks to Thierry Lelegard for null packet deletion bug fix
+
+
+Changes for 0.2.10 (2023-10-30):
+--------------------------------
+
+  - Development branch merge with accumulated fixes and improvements
+
+
+Changes for 0.2.9 (2023-10-11):
+-------------------------------
+
+Bug Fixes:
+  - Fix compilation on 32-bit systems
+  - Fix regression in stats obj RTT value
+  - Remove unneeded locking in buffer scaling
+  - Fix "too old packages" error due to buffer scaling
+  - Fix empty buffer time check
+  - Disable buffer negotiation when sender max buffer < receiver buffer
+  - Fix deadlock caused by wrong lock order when removing peers
+  - Fix building Prometheus code against older libmicrohttpd
+  - Fix compilation on Hurd
+
+
+Changes for 0.2.8 (2023-08-22):
+-------------------------------
+
+New Features:
+  - SRP (Secure Remote Password) passphrase exchange
+  - Passphrase changing support via U1 bit on M1/M2 packets
+  - Fully implemented passphrase changing on multicast
+
+Bug Fixes:
+  - Add GRE check for bit 1 and GRE Ver set to 0
+  - Fix SIGSEGV when peer_rtcp pointer is null
+
+Improvements:
+  - Refactored peer matching
+  - Refactored cryptographic randomness from SRP
+  - Added peer lock for thread safety
+  - Default PSK keysize to 256 if not set
+
+
+Changes for 0.2.7 (2022-04-07):
+-------------------------------
+
+New Features:
+  - Multiplexing support
+  - TUN (tunnel) interface support
+
+
+Changes for 0.2.6 (2021-07-22):
+-------------------------------
+
+Improvements:
+  - Move per-packet messages to debug level to prevent log flooding
+  - Release data earlier when real-time in buffer exceeds 1.1x buffer duration
+  - Drop stale packets older than 2x buffer duration
+
+
+Changes for 0.2.5 (2021-07-20):
+-------------------------------
+
+  - Maintenance release with minor fixes
+
+
+Changes for 0.2.4 (2021-06-25):
+-------------------------------
+
+  - Maintenance release with stability improvements
+
+
+Changes for 0.2.3 (2021-06-22):
+-------------------------------
+
+  - Maintenance release with bug fixes
+
+
+Changes for 0.2.2 (2021-06-16):
+-------------------------------
+
+  - Maintenance release
+
+
+Changes for 0.2.1 (2021-06-10):
+-------------------------------
+
+  - Stability fixes for initial public release
+
+
+Changes for 0.2.0 (2021-05-12):
+-------------------------------
+
+Initial official public release of librist.
+
+Core Features:
+  - Full support for VSF TR-06-1 (Simple Profile)
+  - Partial support for VSF TR-06-2 (Main/Advanced Profile):
+    * PSK Encryption (AES 128 and 256)
+    * Bidirectional connection initiation
+    * Multipath support (load balanced or redundant link bonding)
+    * One-to-many distribution (media server mode)
+    * Tested packet recovery up to 50% continuous loss
+    * Jitter-tolerant output timing
+
+Tools:
+  - ristsender - RIST sender application
+  - ristreceiver - RIST receiver application
+  - rist2rist - RIST relay/proxy application
+
+Platform Support:
+  - Linux, macOS, Windows, FreeBSD
+  - Cross-compilation support via meson
+
+
+Project Information:
+--------------------
+
+Website: https://code.videolan.org/rist/librist
+License: BSD 2-Clause "Simplified" License
