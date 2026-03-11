@@ -546,7 +546,7 @@ static MHD_OUT rist_prometheus_httpd_handler(void *cls, struct MHD_Connection *c
 		pthread_mutex_lock(&ctx->lock);
 		int size = rist_prometheus_stats_format(ctx);
 		struct MHD_Response *response = MHD_create_response_from_buffer(size, (void *)ctx->format_buf, MHD_RESPMEM_MUST_COPY);
-		MHD_add_response_header(response, "Content-Type", "application/openmetrics-text; version=1.0.0; charset=utf-8; produces=text/plain");
+		MHD_add_response_header(response, "Content-Type", "application/openmetrics-text; version=1.0.0; charset=utf-8");
 		int ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
 		MHD_destroy_response(response);
 		pthread_mutex_unlock(&ctx->lock);
