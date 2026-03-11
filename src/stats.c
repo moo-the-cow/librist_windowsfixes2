@@ -100,6 +100,8 @@ cJSON *rist_sender_peer_statistics(struct rist_peer *peer)
 	cJSON_AddNumberToObject(peer_obj, "id", peer->adv_peer_id);
 	cJSON_AddStringToObject(peer_obj, "cname", peer->receiver_name);
 	cJSON_AddStringToObject(peer_obj, "type", peer->is_data ? "data" : "rtcp");
+	if (peer->miface[0])
+		cJSON_AddStringToObject(peer_obj, "miface", peer->miface);
 	cJSON *json_stats = cJSON_AddObjectToObject(peer_obj, "stats");
 	cJSON_AddNumberToObject(json_stats, "quality", Q);
 	cJSON_AddNumberToObject(json_stats, "sent", (double)peer->stats_sender_instant.sent);
