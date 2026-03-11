@@ -381,7 +381,7 @@ int udpsocket_close(int sd)
 int udpsocket_parse_url_parameters(char *url, udpsocket_url_param_t *params, int max_params,
 	uint32_t *clean_url_len)
 {
-	char* query = NULL;
+	const char* query = NULL;
 	int i = 0;
 	char *token = NULL;
 
@@ -397,7 +397,7 @@ int udpsocket_parse_url_parameters(char *url, udpsocket_url_param_t *params, int
 		return 0;
 
 	const char amp[2] = "&";
-	token = strtok( query + 1, amp );
+	token = strtok( (char*)query + 1, amp );
 	while (token != NULL && i < max_params) {
 		params[i].key = token;
 		params[i].val = NULL;
