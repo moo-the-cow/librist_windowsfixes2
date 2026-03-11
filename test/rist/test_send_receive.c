@@ -122,7 +122,7 @@ static PTHREAD_START_FUNC(send_data, arg) {
     int send_counter = 0;
     char buffer[1316] = { 0 };
     struct rist_data_block data = { 0 };
-    srand(time(NULL));
+    srand((unsigned int)time(NULL));
     /* we just try to send some string at ~20mbs for ~8 seconds */
     while (send_counter < 16000) {
         if (atomic_load(&stop))
@@ -251,7 +251,7 @@ int main(int argc, char *argv[]) {
 				got_first = true;
 			}
             // Check entire mpegts structure
-            int tsindex = b->payload_len / 188;
+            int tsindex = (int)(b->payload_len / 188);
             for(int ts = 0; ts < tsindex; ts++){
                 int offset = 188*ts;
                 uint8_t *payload = ((uint8_t*)b->payload + offset);

@@ -101,6 +101,7 @@ enum rist_stats_type
 };
 
 #define RIST_STATS_VERSION (0)
+#define RIST_SENDER_STATS_VERSION (0)
 
 struct rist_stats
 {
@@ -114,7 +115,6 @@ struct rist_stats
 	} stats;
 };
 
-
 /**
  * @brief Set callback for receiving stats structs
  *
@@ -124,6 +124,16 @@ struct rist_stats
  * @param arg extra arguments for callback function
  */
 RIST_API int rist_stats_callback_set(struct rist_ctx *ctx, int statsinterval, int (*stats_cb)(void *arg, const struct rist_stats *stats_container), void *arg);
+
+/**
+ * @brief Set callback for receiving sender stats json
+ *
+ * @param ctx RIST context
+ * @param statsinterval interval between stats reporting
+ * @param stats_cb Callback function that will be called. The json char pointer must NOT be free()'d when you are finished.
+ * @param arg extra arguments for callback function
+ */
+RIST_API int rist_sender_stats_callback_set(struct rist_ctx *ctx, int statsinterval, int (*stats_cb)(void *arg, uint16_t version, char *stats_json, uint32_t json_size), void *arg);
 
 /**
  * @brief Free the rist_stats structure memory allocations
