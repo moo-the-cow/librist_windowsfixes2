@@ -14,7 +14,26 @@ This project is partially funded by the SipRadius LLC.
 
 The goal of this project is to provide a RIST library for **most platforms**.
 
-It supports all features from the TR-06-1 and most of the features of TR-06-2.
+### Supported Standards
+
+- **VSF TR-06-1** (Simple Profile) - Full support
+- **VSF TR-06-2** (Main Profile) - Full support including:
+  - PSK Encryption (AES-128 and AES-256)
+  - SRP (Secure Remote Password) passphrase exchange
+  - Bidirectional connection initiation
+  - Multipath support (load balanced or redundant link bonding)
+  - One-to-many distribution (media server mode)
+  - Multiplexing and TUN interface support
+  - Null packet deletion/suppression
+
+### Additional Features
+
+- YAML configuration file support for ristsender/ristreceiver
+- Prometheus metrics exporter with OpenMetrics format
+- MPEG-TS null packet suppression byte tracking
+- Differentiated bandwidth statistics (normal/retry/rejected traffic)
+- Session timeout API and callbacks
+- Ephemeral listening ports
 
 ## Dependencies
 
@@ -38,16 +57,40 @@ If you have an application that needs to operate outside the sweet spot describe
 
 # Roadmap
 
-The plan is the following:
+### Completed
 
-### Reached
-1. Complete C implementation of the rist protocol,
-2. Provide a usable API,
+- Complete C implementation of the RIST protocol
+- Stable and documented public API
+- VSF TR-06-1 (Simple Profile) full compliance
+- VSF TR-06-2 (Main Profile) full compliance
+- Cross-platform support (Linux, macOS, Windows, FreeBSD)
+- PSK encryption and SRP passphrase exchange
+- Multipath and multiplexing support
+- Prometheus metrics integration
 
-### On-going
-3. Improve C code base with [various tweaks](https://code.videolan.org/rist/librist/wikis/to-do),
-4. Port/test on most platforms
-5. Provide wrappers for other languages
+### In Progress
+
+- Improve C code base with [various tweaks](https://code.videolan.org/rist/librist/wikis/to-do)
+- Expanded platform testing and optimization
+- Language bindings and wrappers
+
+### Planned
+
+- VSF TR-06-4 Part 4 - Decoder Synchronization API
+- VSF TR-06-4 Parts 6 & 7 - Satellite Redundancy Support
+- VSF TR-06-2 (Advanced Profile)
+
+# Tools
+
+The library includes several command-line utilities:
+
+- **ristsender** - RIST sender application
+- **ristreceiver** - RIST receiver application
+- **rist2rist** - RIST relay/proxy application
+- **udp2udp** - UDP relay application
+- **prometheus-exporter** - Prometheus metrics endpoint (when built with libmicrohttpd)
+
+All tools support YAML configuration files for easier deployment.
 
 # Contribute
 
@@ -77,18 +120,18 @@ The [VideoLAN Code of Conduct](https://wiki.videolan.org/CoC) applies to this pr
 
 # Compile using meson/ninja (linux, osx and windows-mingw)
 
-1. Install [Meson](https://mesonbuild.com/) (0.47 or higher), [Ninja](https://ninja-build.org/)
+1. Install [Meson](https://mesonbuild.com/) (0.51 or higher), [Ninja](https://ninja-build.org/)
 2. Alternatively, use "pip3 install meson" and "pip3 install ninja" to install them
 3. Run `mkdir build && cd build` to create a build directory and enter it
 4. Run `meson ..` to configure meson, add `--default-library=static` if static linking is desired
 5. Run `ninja` to compile
 
-# Compile using meson/ninja (windows - Visual Studio 2019)
+# Compile using meson/ninja (windows - Visual Studio 2019/2022)
 
 1. Open a cmd window and type "pip3 install meson" to install meson through Python Package Index
-2. Run x64 Native Tools Command Prompt for VS 2019.exe
+2. Run "x64 Native Tools Command Prompt for VS 2019.exe" (or VS 2022)
 3. cd to the folder where you downloaded or cloned the librist source code
-4. Run the command "meson setup build --backend vs2019"
+4. Run the command "meson setup build --backend vs2019" (or vs2022)
 5. Run the command "meson compile -C build"
 6. The compiled library and the tools will be in the build and build/tools folders respectively
 7. Alternatively, open librist.sln and build the applications manually if you prefer to use the VS IDE
