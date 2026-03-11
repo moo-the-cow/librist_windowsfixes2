@@ -10,7 +10,7 @@ if not builtin_mbedtls
             builtin_mbedtls = true
         endif
     endif
-    if mbedcrypto_lib.found()
+    if mbedcrypto_lib.found() and mbedcrypto_lib.type_name() != 'internal'
         mbedcrypto_lib_found = true
 		mpi_random_test = '''
 #include <mbedtls/bignum.h>
