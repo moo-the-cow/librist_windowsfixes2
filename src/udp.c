@@ -707,7 +707,12 @@ peer_select:
 		if (!peer->listening && !peer->multicast_sender && !eap_is_authenticated(peer->eap_ctx))
 			continue;
 #endif
-		if ((!peer->listening && !peer->authenticated) || peer->dead
+		/* A peer is "hard dead" only after the recovery buffer grace period expires.
+		 * This prevents single-path streams from being interrupted by temporary
+		 * ECHO/RTCP response delays while still eventually stopping if the peer
+		 * is truly gone. */
+		bool hard_dead = peer->dead && (peer->dead_since + peer->recovery_buffer_ticks) < now;
+		if ((!peer->listening && !peer->authenticated) || hard_dead
 			|| (peer->listening && !peer->child_alive_count)) {
 			ctx->weight_counter -= peer->config.weight;
 			if (ctx->weight_counter <= 0) {
