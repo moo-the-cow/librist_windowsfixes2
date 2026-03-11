@@ -2026,12 +2026,13 @@ static void rist_handle_rr_pkt(struct rist_peer *peer, struct rist_rtcp_rr_pkt *
 		if (!lsr_ntp)//this can happen on the first time
 			return;
 		//Slightly less accurate, needed when RTT is bigger than our RTCP interval.
-		uint64_t now = timestampNTP_u64();
-		lsr_ntp = lsr_ntp << 16;
-		lsr_ntp |= (now & 0xFFFF000000000000);
-		if (lsr_ntp > now)
+		// lsr in SR is populated from RTC, so be sure to use that when comparing.
+		uint64_t now_rtc = timestampNTP_RTC_u64();
+		lsr_ntp = (lsr_ntp << 16) & 0x0000FFFFFFFF0000;
+		lsr_ntp |= (now_rtc & 0xFFFF000000000000);
+		if (lsr_ntp > now_rtc)
 			return;
-		rtt  = now - lsr_ntp  - ((uint64_t)be32toh(rr->dlsr) << 16);
+		rtt  = now_rtc - lsr_ntp  - ((uint64_t)be32toh(rr->dlsr) << 16);
 	}
 	peer->last_rtt = rtt;
 	peer->eight_times_rtt -= peer->eight_times_rtt / 8;
