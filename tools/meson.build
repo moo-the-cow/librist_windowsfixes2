@@ -22,9 +22,26 @@ if have_srp
 	tools_dependencies += crypto_deps
 endif
 
+#On ubuntu cjson does not come with pkgconfig files, hence the extended checking.
+if not builtin_cjson
+	cjson_lib = dependency('libcjson', required: false)
+	if not cjson_lib.found()
+		cjson_lib = cc.find_library('cjson', required: required_library, has_headers: ['cjson/cJSON.h'])
+		if not cjson_lib.found()
+			builtin_cjson = true
+		endif
+	endif
+endif
+if builtin_cjson
+	message('Using builtin cJSON library')
+	cjson_lib = declare_dependency( compile_args : '-DCJSON_HIDE_SYMBOLS',
+									sources: '../contrib/contrib_cJSON/cjson/cJSON.c',
+									include_directories : include_directories('../contrib/contrib_cJSON'))
+endif
+
 if compile_prometheus
-	prometheuslib = static_library('prometheus', 'prometheus-exporter.c', include_directories: inc)
-	prometheus_dep = declare_dependency(link_with: prometheuslib, include_directories: include_directories('.'), dependencies: microhttpd)
+	prometheuslib = static_library('prometheus', 'prometheus-exporter.c', include_directories: [inc, '../contrib/contrib_cJSON'])
+	prometheus_dep = declare_dependency(link_with: prometheuslib, include_directories: include_directories('.'), dependencies: [microhttpd, cjson_lib])
 	tools_dependencies += prometheus_dep
 endif
 
@@ -35,6 +52,7 @@ executable('ristsender',
 		threads,
 		stdatomic_dependency,
 		tools_dependencies,
+		cjson_lib,
 	],
 	include_directories: inc,
 	install: should_install)
@@ -45,6 +63,7 @@ executable('ristreceiver',
 		librist_dep,
 		tools_dependencies,
 		threads,
+		cjson_lib,
 	],
 
 	include_directories: inc,
@@ -56,6 +75,7 @@ executable('rist2rist',
 		tools_dependencies,
 		threads,
 		librist_dep,
+		cjson_lib,
 	],
 	include_directories: inc,
 	install: should_install)
@@ -66,6 +86,7 @@ executable('udp2udp',
 		tools_dependencies,
 		threads,
 		librist_dep,
+		cjson_lib,
 	],
 	include_directories: inc,
 	install: should_install)

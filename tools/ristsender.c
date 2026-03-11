@@ -425,16 +425,17 @@ static int cb_recv_oob(void *arg, const struct rist_oob_block *oob_block)
 }
 #endif
 
-static int cb_stats(void *arg, const struct rist_stats *stats_container)
+static int sender_stats_callback(void *arg, uint16_t version, char *stats_json, uint32_t json_size)
 {
-	rist_log(&logging_settings, RIST_LOG_INFO, "%s\n\n", stats_container->stats_json);
+	(void) arg;
+	(void) version;
+	rist_log(&logging_settings, RIST_LOG_INFO, "%s\n\n", stats_json, json_size);
 #if HAVE_PROMETHEUS_SUPPORT
 	if (prom_stats_ctx != NULL)
-		rist_prometheus_parse_stats(prom_stats_ctx, stats_container, (uintptr_t)arg);
+		rist_prometheus_parse_sender_stats(prom_stats_ctx, version, stats_json, json_size, (uintptr_t)arg);
 #else
 	(void)arg;
 #endif
-	rist_stats_free(stats_container);
 	return 0;
 }
 
@@ -447,8 +448,7 @@ static void intHandler(int signal)
 static struct rist_peer* setup_rist_peer(struct rist_ctx_wrap *w, struct rist_sender_args *setup)
 {
 	struct rist_ctx *ctx = w->ctx;
-	if (rist_stats_callback_set(ctx, setup->statsinterval, cb_stats, (void*)w->id) == -1) {
-
+	if (rist_sender_stats_callback_set(ctx, setup->statsinterval, sender_stats_callback, (void*)w->id) == -1) {
 		rist_log(&logging_settings, RIST_LOG_ERROR, "Could not enable stats callback\n");
 		return NULL;
 	}
@@ -474,7 +474,7 @@ static struct rist_peer* setup_rist_peer(struct rist_ctx_wrap *w, struct rist_se
 		}
 	}
 
-	if (rist_stats_callback_set(ctx, setup->statsinterval, cb_stats, NULL) == -1) {
+	if (rist_sender_stats_callback_set(ctx, setup->statsinterval, sender_stats_callback, NULL) == -1) {
 		rist_log(&logging_settings, RIST_LOG_ERROR, "Could not enable stats callback\n");
 		return NULL;
 	}

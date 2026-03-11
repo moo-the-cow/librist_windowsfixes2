@@ -5,6 +5,7 @@
 #include "pthread-shim.h"
 #include "socket-shim.h"
 #include "config.h"
+#include "cjson/cJSON.h"
 #include <errno.h>
 #include <stdbool.h>
 #if HAVE_SOCK_UN_H
@@ -59,6 +60,9 @@ struct rist_prometheus_client_flow_stats {
 		double rist_client_flow_peers;
 		double rist_client_flow_bandwidth_bps;
 		double rist_client_flow_retry_bandwidth_bps;
+		double rist_client_flow_rejected_bandwidth_bps;
+		double rist_client_flow_ts_nulls_bandwidth_bps;
+		double rist_client_flow_payload_bandwidth_bps;
 		double rist_client_flow_sent_packets;
 		double rist_client_flow_received_packets;
 		double rist_client_flow_missing_packets;
@@ -88,6 +92,7 @@ struct rist_prometheus_sender_peer_stats {
 
 	struct {
 		double rist_sender_peer_sent_packets;
+		double rist_sender_peer_ts_null_packets;
 		double rist_sender_peer_received_packets;
 		double rist_sender_peer_retransmitted_packets;
 	} counters;
@@ -96,7 +101,9 @@ struct rist_prometheus_sender_peer_stats {
 		uint64_t updated;
 		double rist_sender_peer_bandwidth_bps;
 		double rist_sender_peer_retry_bandwidth_bps;
+		double rist_sender_peer_ts_nulls_bandwidth_bps;
 		double rist_sender_peer_sent_packets;
+		double rist_sender_peer_ts_null_packets;
 		double rist_sender_peer_received_packets;
 		double rist_sender_peer_retransmitted_packets;
 		double rist_sender_peer_rtt_seconds;
@@ -211,6 +218,9 @@ static int rist_prometheus_format_client_flow_stats(struct rist_prometheus_stats
 	PROMETHEUS_GAUGE_PRINT_CLIENT(rist_client_flow_peers, "The current number of connected peers", "peers")
 	PROMETHEUS_GAUGE_PRINT_CLIENT(rist_client_flow_bandwidth_bps, "The current bandwidth of the flow", "bps")
 	PROMETHEUS_GAUGE_PRINT_CLIENT(rist_client_flow_retry_bandwidth_bps, "The current retry bandwidth of the flow", "bps")
+	PROMETHEUS_GAUGE_PRINT_CLIENT(rist_client_flow_rejected_bandwidth_bps, "The current rejected bandwidth of the flow", "bps")
+	PROMETHEUS_GAUGE_PRINT_CLIENT(rist_client_flow_ts_nulls_bandwidth_bps, "The current ts_nulls bandwidth of the flow", "bps")
+	PROMETHEUS_GAUGE_PRINT_CLIENT(rist_client_flow_payload_bandwidth_bps, "The current payload bandwidth of the flow", "bps")
 	PROMETHEUS_COUNTER_PRINT_CLIENT(rist_client_flow_sent_packets, "Total number of packets sent", "packets")
 	PROMETHEUS_COUNTER_PRINT_CLIENT(rist_client_flow_received_packets, "Total number of packets received", "packets")
 	PROMETHEUS_COUNTER_PRINT_CLIENT(rist_client_flow_missing_packets, "Total number of missing packets", "packets")
@@ -234,6 +244,7 @@ static int rist_prometheus_format_sender_peer_stats(struct rist_prometheus_stats
 	PROMETHEUS_GAUGE_PRINT_SENDER_PEER(rist_sender_peer_bandwidth_bps, "The current bandwidth transmitted to the peer", "bps")
 	PROMETHEUS_GAUGE_PRINT_SENDER_PEER(rist_sender_peer_retry_bandwidth_bps, "The current retry bandwidth transmitted to the peer", "bps")
 	PROMETHEUS_GAUGE_PRINT_SENDER_PEER(rist_sender_peer_sent_packets, "Total number of packets sent", "packets")
+	PROMETHEUS_GAUGE_PRINT_SENDER_PEER(rist_sender_peer_ts_null_packets, "Total number of packets with ts nulls removed", "packets")
 	PROMETHEUS_GAUGE_PRINT_SENDER_PEER(rist_sender_peer_retransmitted_packets, "Total number of packets retransmitted", "packets")
 	PROMETHEUS_GAUGE_PRINT_SENDER_PEER(rist_sender_peer_received_packets, "Total number of packets received (rtcp)", "packets")
 	PROMETHEUS_GAUGE_PRINT_SENDER_PEER(rist_sender_peer_rtt_seconds, "Current RTT in seconds", "seconds");
@@ -241,7 +252,10 @@ static int rist_prometheus_format_sender_peer_stats(struct rist_prometheus_stats
 	return offset;
 }
 
-void rist_prometheus_handle_client_stats(struct rist_prometheus_stats *ctx, const struct rist_stats_receiver_flow *stats, uint64_t now, uint64_t receiver_id) {
+void rist_prometheus_handle_client_stats(struct rist_prometheus_stats *ctx, const struct rist_stats *stats_container, uint64_t now, uint64_t receiver_id) {
+
+	const struct rist_stats_receiver_flow *stats = &stats_container->stats.receiver_flow;
+
 	struct rist_prometheus_client_flow_stats *s = NULL;
 	for (size_t i=0; i < ctx->client_cnt; i++) {
 		if (ctx->clients[i]->flowid == stats->flow_id && ctx->clients[i]->receiver_id == receiver_id) {
@@ -278,9 +292,27 @@ void rist_prometheus_handle_client_stats(struct rist_prometheus_stats *ctx, cons
 		s = ctx->clients[ctx->client_cnt];
 		ctx->client_cnt++;
 	}
+
+	cJSON *root = cJSON_Parse(stats_container->stats_json);
+	cJSON *receiverstats = cJSON_GetObjectItem(root,"receiver-stats"); 
+	cJSON *flowinstant = cJSON_GetObjectItem(receiverstats,"flowinstant"); 
+	cJSON *flowstats = cJSON_GetObjectItem(flowinstant,"stats");
+	double bitrate_rejected = 0;
+	double bitrate_ts_nulls = 0;
+	double bitrate_payload = 0;
+	if (stats_container->version > 0) {
+		bitrate_rejected = cJSON_GetObjectItem(flowstats,"bitrate_rejected")->valuedouble;
+		bitrate_ts_nulls = cJSON_GetObjectItem(flowstats,"bitrate_ts_nulls")->valuedouble;
+		bitrate_payload = cJSON_GetObjectItem(flowstats,"bitrate_payload")->valuedouble;
+	}
+	cJSON_Delete(receiverstats);
+
 	s->container[s->container_offset].rist_client_flow_peers = stats->peer_count;
 	s->container[s->container_offset].rist_client_flow_bandwidth_bps = stats->bandwidth;
 	s->container[s->container_offset].rist_client_flow_retry_bandwidth_bps = stats->retry_bandwidth;
+	s->container[s->container_offset].rist_client_flow_rejected_bandwidth_bps = bitrate_rejected;
+	s->container[s->container_offset].rist_client_flow_ts_nulls_bandwidth_bps = bitrate_ts_nulls;
+	s->container[s->container_offset].rist_client_flow_payload_bandwidth_bps = bitrate_payload;
 	s->container[s->container_offset].rist_client_flow_sent_packets = s->counters.rist_client_flow_sent_packets += stats->sent;
 	s->container[s->container_offset].rist_client_flow_received_packets = s->counters.rist_client_flow_received_packets += stats->received;
 	s->container[s->container_offset].rist_client_flow_missing_packets = s->counters.rist_client_flow_missing_packets += stats->missing;
@@ -306,7 +338,10 @@ void rist_prometheus_handle_client_stats(struct rist_prometheus_stats *ctx, cons
 	}
 }
 
-void rist_prometheus_handle_sender_peer_stats(struct rist_prometheus_stats *ctx, const struct rist_stats_sender_peer *stats, uint64_t now, uint64_t sender_id) {
+void rist_prometheus_handle_sender_peer_stats(struct rist_prometheus_stats *ctx, const struct rist_stats *stats_container, uint64_t now, uint64_t sender_id) {
+
+	const struct rist_stats_sender_peer *stats = &stats_container->stats.sender_peer;
+
 	struct rist_prometheus_sender_peer_stats *s = NULL;
 	for (size_t i = 0; i < ctx->sender_peer_cnt; i++) {
 		if (ctx->sender_peers[i]->peer_id == stats->peer_id && ctx->sender_peers[i]->sender_id == sender_id) {
@@ -339,11 +374,34 @@ void rist_prometheus_handle_sender_peer_stats(struct rist_prometheus_stats *ctx,
 			assert(res >=0);
 		}
 	}
+
+	cJSON *root = cJSON_Parse(stats_container->stats_json);
+	cJSON *senderstats = cJSON_GetObjectItem(root,"sender-stats");
+	double ts_null = 0;
+	double ts_nulls_bandwidth = 0;
+	cJSON *peer = senderstats->child;
+	while( peer ) {
+		int peer_id = cJSON_GetObjectItem(peer,"id")->valueint;
+		if (stats->peer_id == (uint32_t)peer_id)
+		{
+			cJSON *peerstats = cJSON_GetObjectItem(peer,"stats");
+			if (stats_container->version > 0) {
+				ts_null = cJSON_GetObjectItem(peerstats,"ts_null")->valuedouble;
+				ts_nulls_bandwidth = cJSON_GetObjectItem(peerstats,"ts_nulls_bandwidth")->valuedouble;
+			}	
+			break;
+		}
+		peer = peer->next;
+	}
+	cJSON_Delete(senderstats);
+
 	s->container[s->container_offset].rist_sender_peer_sent_packets = s->counters.rist_sender_peer_sent_packets += stats->sent;
+	s->container[s->container_offset].rist_sender_peer_ts_null_packets = s->counters.rist_sender_peer_ts_null_packets += ts_null;
 	s->container[s->container_offset].rist_sender_peer_received_packets = s->counters.rist_sender_peer_received_packets += stats->received;
 	s->container[s->container_offset].rist_sender_peer_retransmitted_packets = s->counters.rist_sender_peer_retransmitted_packets += stats->retransmitted;
 	s->container[s->container_offset].rist_sender_peer_bandwidth_bps = stats->bandwidth;
 	s->container[s->container_offset].rist_sender_peer_retry_bandwidth_bps = stats->retry_bandwidth;
+	s->container[s->container_offset].rist_sender_peer_ts_nulls_bandwidth_bps = ts_nulls_bandwidth;
 	s->container[s->container_offset].rist_sender_peer_rtt_seconds= ((double)1 / (double)1000) * stats->rtt;
 	s->container[s->container_offset].rist_sender_peer_quality = stats->quality;
 	s->container[s->container_offset].updated = now;
@@ -359,13 +417,19 @@ void rist_prometheus_handle_sender_peer_stats(struct rist_prometheus_stats *ctx,
 	}
 }
 
+void rist_prometheus_parse_sender_stats(struct rist_prometheus_stats *ctx, uint16_t version, char *stats_json, uint32_t json_size, uintptr_t id)
+{
+	(void)ctx; (void)version; (void)stats_json; (void)json_size; (void)id;
+	// TODO: convert json stats to prometheus stats
+}
+
 void rist_prometheus_parse_stats(struct rist_prometheus_stats *ctx, const struct rist_stats *stats_container, uintptr_t id) {
 	pthread_mutex_lock(&ctx->lock);
 	uint64_t now = get_timestamp();
 	if (stats_container->stats_type == RIST_STATS_RECEIVER_FLOW) {
-		rist_prometheus_handle_client_stats(ctx, &stats_container->stats.receiver_flow, now, id);
+		rist_prometheus_handle_client_stats(ctx, stats_container, now, id);
 	} else if (stats_container->stats_type == RIST_STATS_SENDER_PEER) {
-		rist_prometheus_handle_sender_peer_stats(ctx, &stats_container->stats.sender_peer, now, id);
+		rist_prometheus_handle_sender_peer_stats(ctx, stats_container, now, id);
 	}
 	if (now > ctx->last_cleanup && (now - ctx->last_cleanup) >10) {
 		{//clean expired receiver clients
@@ -440,9 +504,9 @@ static int rist_prometheus_stats_format(struct rist_prometheus_stats *ctx) {
 		ctx->format_buf = realloc(ctx->format_buf, ((req_size + 1023) & -1024));
 		ctx->format_buf_len = ((req_size + 1023) & -1024);
 	}
-	int size = rist_prometheus_format_client_flow_stats(ctx, ctx->format_buf, ctx->format_buf_len);
+	int size = rist_prometheus_format_client_flow_stats(ctx, ctx->format_buf, (int)ctx->format_buf_len);
 
-	size += rist_prometheus_format_sender_peer_stats(ctx, &ctx->format_buf[size], ctx->format_buf_len - size);
+	size += rist_prometheus_format_sender_peer_stats(ctx, &ctx->format_buf[size], (int)ctx->format_buf_len - size);
 	for (size_t i=0; i < ctx->client_cnt; i++) {
 		ctx->clients[i]->container_count = 0;
 		ctx->clients[i]->container_offset = 0;
@@ -568,7 +632,7 @@ static char *rist_prometheus_user_tags(const char *tags) {
 	if (strchr(tags, '=') == NULL) {
 		return NULL;//Doesn't contain an =, we cannot parse this
 	}
-	int len_s = strlen(tags);
+	int len_s = (int)strlen(tags);
 	int len = len_s +2;//keep room for nullbyte & ending comma
 	char *out = NULL;
 	if (strchr(tags, '"') == NULL) {
