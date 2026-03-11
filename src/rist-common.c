@@ -575,10 +575,12 @@ static int receiver_enqueue(struct rist_peer *peer, uint64_t source_time, uint64
 		receiver_insert_queue_packet(f, peer, idx_initial, buf, len, seq, source_time, src_port, dst_port, packet_time);
 		atomic_store_explicit(&f->receiver_queue_output_idx, idx_initial, memory_order_release);
 
-		/* reset stats */
+		/* reset stats and timing state */
 		pthread_mutex_lock(&(get_cctx(peer)->stats_lock));
 		memset(&f->stats_instant, 0, sizeof(f->stats_instant));
 		pthread_mutex_unlock(&(get_cctx(peer)->stats_lock));
+		f->last_output_time = 0;
+		f->too_late_ctr = 0;
 		f->receiver_queue_has_items = true;
 		pthread_mutex_unlock(&f->mutex);
 		return 0; // not a dupe
@@ -991,8 +993,8 @@ static void receiver_output(struct rist_receiver *ctx, struct rist_flow *f)
 						atomic_store_explicit(&f->fifo_overflow, true, memory_order_release);
 					} else
 					{
-						if (RIST_UNLIKELY(f->fifo_overflow == true))
-							atomic_store_explicit(&f->fifo_overflow, false, memory_order_release);
+					if (RIST_UNLIKELY(atomic_load_explicit(&f->fifo_overflow, memory_order_relaxed) == true))
+						atomic_store_explicit(&f->fifo_overflow, false, memory_order_release);
 						f->dataout_fifo_queue[dataout_fifo_write_index] = block;
 						atomic_store_explicit(&f->dataout_fifo_queue_write_index, (dataout_fifo_write_index + 1)& (ctx->fifo_queue_size-1), memory_order_relaxed);
 						// Wake up the fifo read thread (poll)
@@ -1878,7 +1880,7 @@ static bool rist_receiver_rtcp_authenticate(struct rist_peer *peer, uint32_t seq
 }
 
 static void rist_receiver_recv_data(struct rist_peer *peer, uint32_t seq, uint32_t flow_id,
-		uint64_t source_time, uint64_t packet_recv_time, struct rist_buffer *payload, uint8_t retry, uint8_t payload_type)
+		uint64_t source_time, uint64_t packet_recv_time, struct rist_buffer *payload, uint8_t retry, uint8_t payload_type, size_t ingest_size, size_t ts_null_bytes)
 {
 	assert(peer->receiver_ctx != NULL);
 	struct rist_receiver *ctx = peer->receiver_ctx;
@@ -1934,9 +1936,22 @@ static void rist_receiver_recv_data(struct rist_peer *peer, uint32_t seq, uint32
 		rist_log_priv(&ctx->common, RIST_LOG_ERROR, "Call to pthread_cond_signal failed.\n");
 	if (!receiver_enqueue(peer, source_time, packet_recv_time, payload->data, payload->size, seq, rtt, retry, payload->src_port, payload->dst_port, payload_type)) {
 		pthread_mutex_lock(&ctx->common.stats_lock);
-		rist_calculate_flow_bitrate(peer->flow, payload->size, &peer->flow->bw); // update bitrate only if not a dupe
+		// bitrate only if not a dupe or other failures
+		if (retry)
+			rist_calculate_flow_bitrate(peer->flow, ingest_size, &peer->flow->bw_retries); 
+		else
+			rist_calculate_flow_bitrate(peer->flow, ingest_size, &peer->flow->bw);
+		rist_calculate_flow_bitrate(peer->flow, ts_null_bytes, &peer->flow->bw_tsnull);
 		pthread_mutex_unlock(&ctx->common.stats_lock);
-
+	}
+	else
+	{
+		pthread_mutex_lock(&ctx->common.stats_lock);
+		if (retry)
+			rist_calculate_flow_bitrate(peer->flow, ingest_size, &peer->flow->bw_retries);
+		else
+			rist_calculate_flow_bitrate(peer->flow, ingest_size, &peer->flow->bw_rejected);
+		pthread_mutex_unlock(&ctx->common.stats_lock);
 	}
 }
 
@@ -2765,6 +2780,7 @@ protocol_bypass:
 	uint64_t source_time = 0;
 	uint8_t payload_type = rtp->payload_type;
 	uint8_t payload_type_nomarker_bit = rtp->payload_type & 127;
+	int ts_null_bytes = 0;
 
 	if (cctx->profile == RIST_PROFILE_SIMPLE || gre_proto == RIST_GRE_PROTOCOL_TYPE_REDUCED) {
 		// Finish defining the payload (we assume reduced header)
@@ -2798,7 +2814,8 @@ protocol_bypass:
 				{
 					// Null packet expansion (use a separate buffer and replace it when we had nulls)
 					if (CHECK_BIT(hdr_ext->flags, 7)) {
-						if (expand_null_packets(data_payload, data_payload_out, &payload.size, hdr_ext->npd_bits))
+						ts_null_bytes = expand_null_packets(data_payload, data_payload_out, &payload.size, hdr_ext->npd_bits);
+						if (ts_null_bytes)
 							payload.data = (void *)data_payload_out;
 					}
 				}
@@ -2834,6 +2851,8 @@ protocol_bypass:
 			p->peer_data->dead = 0;
 	}
 	p->last_pkt_received = now;
+	if (ts_null_bytes)
+		p->stats_receiver_instant.ts_null++;
 	if (p->flow)
 		p->flow->last_recv_ts = now;
 	payload.peer = p;
@@ -2902,8 +2921,9 @@ protocol_bypass:
 				rist_log_priv(get_cctx(peer), RIST_LOG_WARN,
 						"Received data packet on sender, ignoring (%d bytes)...\n", payload.size);
 			else {
-				rist_calculate_bitrate((recv_bufsize - payload_offset), &p->bw);//use the unexpanded size to show real BW
-				rist_receiver_recv_data(p, seq, flow_id, source_time, now, &payload, retry, payload_type);
+				size_t received_bytes = recv_bufsize - payload_offset; //use the unexpanded size to show real BW
+				rist_calculate_bitrate(received_bytes, &p->bw);
+				rist_receiver_recv_data(p, seq, flow_id, source_time, now, &payload, retry, payload_type, received_bytes, ts_null_bytes);
 			}
 			break;
 		case RIST_PAYLOAD_TYPE_EAPOL:
@@ -3021,7 +3041,7 @@ static void rist_oob_dequeue(struct rist_common_ctx *ctx, int maxcount)
 
 		uint8_t *payload = oob_buffer->data;
 		rist_send_common_rtcp(oob_buffer->peer, RIST_PAYLOAD_TYPE_DATA_OOB, &payload[RIST_MAX_PAYLOAD_OFFSET],
-				oob_buffer->size, 0, 0, 0, 0);
+				oob_buffer->size, 0, 0, 0, 0, 0);
 		ctx->oob_queue_bytesize -= oob_buffer->size;
 		ctx->oob_queue_read_index++;
 	}
@@ -3109,7 +3129,7 @@ static void sender_send_data(struct rist_sender *ctx, int maxcount)
 			if (buffer->type == RIST_PAYLOAD_TYPE_RTCP) {
 				// TODO can we ever have a null or dead buffer->peer?
 				uint8_t *payload = buffer->data;
-				rist_send_common_rtcp(buffer->peer, buffer->type, &payload[RIST_MAX_PAYLOAD_OFFSET], buffer->size, buffer->source_time, buffer->src_port, buffer->dst_port, 0);
+				rist_send_common_rtcp(buffer->peer, buffer->type, &payload[RIST_MAX_PAYLOAD_OFFSET], buffer->size, buffer->source_time, buffer->src_port, buffer->dst_port, 0, ctx->sender_queue[idx]->ts_null_bytes);
 				buffer->seq = ctx->common.seq;
 				buffer->seq_rtp = ctx->common.seq_rtp;
 			}
@@ -3120,31 +3140,26 @@ static void sender_send_data(struct rist_sender *ctx, int maxcount)
 			}
 		}
 
-		// Keep only sender_queue_buffer_size items in buffer (this controls the size of the sender queue used on retries)
+		// Keep only sender_buffer_size items in buffer (this controls the size of the sender queue used on retries)
 		int reduce = 0;
 		do {
-			size_t delete_idx = ((size_t)atomic_load_explicit(&ctx->sender_queue_read_index, memory_order_acquire) - ctx->sender_queue_buffer_size)& (ctx->sender_queue_max-1);
+			size_t delete_idx = ((size_t)atomic_load_explicit(&ctx->sender_queue_read_index, memory_order_acquire) - ctx->sender_buffer_size) & (ctx->sender_queue_max - 1);
 			ctx->sender_queue_delete_index = delete_idx;
 			if (ctx->sender_queue[delete_idx] && ctx->sender_queue[delete_idx]->data) {
 				/* perform the deletion based on the buffer size plus twice the configured/measured avg_rtt */
 				uint64_t delay = (timestampNTP_u64() - ctx->sender_queue[delete_idx]->time) / RIST_CLOCK;
 				ctx->sender_queue_timelength = delay;
 				if (delay < ctx->sender_recover_min_time) {
-					// this will grow the buffer size by one
-					//rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
-					//		"Sender buffer size is too small, growing it to %zu, %zu\n", ctx->sender_queue_buffer_size, ctx->sender_queue_size);
-					ctx->sender_queue_buffer_size++;
+					// Grow the buffer size by one (packet is too young to delete)
+					ctx->sender_buffer_size++;
 					reduce = 0;
-					// this continue will exit this while loop and continue in the outer loop
 					break;
 				}
 				else if (reduce == 0 && delay > ctx->sender_recover_min_time * 1.1) {
-					// this will shrink the buffer size by one
-					//rist_log_priv(&ctx->common, RIST_LOG_DEBUG,
-					//		"Sender buffer size is too large, shrinking it to %zu, %zu\n", ctx->sender_queue_buffer_size, ctx->sender_queue_size);
-					if (ctx->sender_queue_buffer_size > 0) {
+					// Shrink the buffer size by one (packet is old enough)
+					if (ctx->sender_buffer_size > 0) {
 						reduce = 1;
-						ctx->sender_queue_buffer_size--;
+						ctx->sender_buffer_size--;
 					}
 				}
 				else {
@@ -3391,7 +3406,7 @@ PTHREAD_START_FUNC(sender_pthread_protocol, arg)
 	int max_oobperloop = 100;
 
 	int max_jitter_ms = ctx->common.rist_max_jitter / RIST_CLOCK;
-	uint64_t rist_stats_interval = ctx->common.stats_report_time; // 1 second
+	uint64_t rist_stats_interval = ctx->stats_report_time; // 1 second
 
 	rist_log_priv(&ctx->common, RIST_LOG_INFO, "Starting master sender loop at %d ms max jitter\n",
 			max_jitter_ms);
@@ -3426,16 +3441,7 @@ PTHREAD_START_FUNC(sender_pthread_protocol, arg)
 		// stats timer
 		if (now > ctx->stats_next_time) {
 			ctx->stats_next_time += rist_stats_interval;
-
-			pthread_mutex_lock(&ctx->common.peerlist_lock);
-			for (size_t j = 0; j < ctx->peer_lst_len; j++) {
-				struct rist_peer *peer = ctx->peer_lst[j];
-				// TODO: print warning if the peer is dead?, i.e. no stats
-				if (!peer->dead) {
-					rist_sender_peer_statistics(peer);
-				}
-			}
-			pthread_mutex_unlock(&ctx->common.peerlist_lock);
+			rist_sender_flow_statistics(ctx);
 			// TODO: remove dead peers after stale flow time (both sender list and peer chain)
 			// sender_peer_delete(peer->sender_ctx, peer);
 		}
