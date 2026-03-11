@@ -209,7 +209,7 @@ int rist_receiver_data_read2(struct rist_ctx *rist_ctx, struct rist_data_block *
 
 	*data_buffer = data_block;
 
-	if (RIST_UNLIKELY(f->fifo_overflow == true))
+	if (RIST_UNLIKELY(atomic_load_explicit(&f->fifo_overflow, memory_order_relaxed) == true))
 		data_block->flags |= RIST_DATA_FLAGS_OVERFLOW;
 
 	return (int)num;
@@ -707,7 +707,7 @@ uint32_t rist_peer_get_cname(const struct rist_peer *peer, const char **cname)
 	if (peer)
 	{
 		*cname = &peer->cname[0];
-		return strlen(*cname);
+		return (uint32_t)strlen(*cname);
 	}
 	else
 		return 0;
@@ -776,6 +776,24 @@ int rist_udp_config_free2(struct rist_udp_config **udp_config)
 		free((void *)*udp_config);
 		*udp_config = NULL;
 	}
+	return 0;
+}
+
+int rist_sender_stats_callback_set(struct rist_ctx *ctx, int statsinterval, int (*stats_cb)(void *arg, uint16_t version, char *stats_json, uint32_t json_size), void *arg)
+{
+	if (RIST_UNLIKELY(!ctx))
+	{
+		rist_log_priv3(RIST_LOG_ERROR, "rist_sender_stats_callback_set call with null ctx!\n");
+		return -1;
+	}
+
+	if (ctx->mode == RIST_SENDER_MODE && statsinterval != 0)
+	{
+		ctx->sender_ctx->sender_stats_callback = stats_cb;
+		ctx->sender_ctx->sender_stats_callback_argument = arg;
+		ctx->sender_ctx->stats_report_time = statsinterval * RIST_CLOCK;
+	}
+
 	return 0;
 }
 

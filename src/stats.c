@@ -20,13 +20,40 @@ static double round_two_digits(double number)
 	return (double)(new_number) / 100;
 }
 
-void rist_sender_peer_statistics(struct rist_peer *peer)
+void rist_sender_flow_statistics(struct rist_sender *ctx)
 {
-	// TODO: print warning here?? stale flow?
-	if (!peer->authenticated)
-	{
-		return;
+	cJSON *stats = cJSON_CreateObject();
+	cJSON *rist_sender_stats = cJSON_AddObjectToObject(stats, "sender-stats");
+
+	pthread_mutex_lock(&ctx->common.peerlist_lock);
+	for (size_t j = 0; j < ctx->peer_lst_len; j++) {
+		struct rist_peer *peer = ctx->peer_lst[j];
+		if (!peer->dead && peer->authenticated) {
+			cJSON *peer_obj = rist_sender_peer_statistics(peer);
+			cJSON_AddItemToArray(rist_sender_stats, peer_obj);
+		}
 	}
+	pthread_mutex_unlock(&ctx->common.peerlist_lock);
+
+	cJSON *udp_queue_obj = cJSON_AddObjectToObject(rist_sender_stats, "incoming_queue");
+	cJSON_AddNumberToObject(udp_queue_obj, "size", ctx->sender_queue_size);
+	cJSON_AddNumberToObject(udp_queue_obj, "bytesize", ctx->sender_queue_bytesize);
+	cJSON_AddNumberToObject(udp_queue_obj, "time_length", ctx->sender_queue_timelength);
+	if (ctx->sender_queue_timelength > 0)
+		cJSON_AddNumberToObject(udp_queue_obj, "packets_per_second", 1000 * ctx->sender_queue_size / ctx->sender_queue_timelength);
+	else
+		cJSON_AddNumberToObject(udp_queue_obj, "packets_per_second", 0);
+	char *stats_json = cJSON_PrintUnformatted(stats);
+	cJSON_Delete(stats);
+
+	if (ctx->sender_stats_callback != NULL)
+		ctx->sender_stats_callback(ctx->sender_stats_callback_argument, RIST_SENDER_STATS_VERSION, stats_json, (uint32_t)strlen(stats_json));
+
+	free(stats_json);
+}
+
+cJSON *rist_sender_peer_statistics(struct rist_peer *peer)
+{
 	pthread_mutex_lock(&(get_cctx(peer)->stats_lock));
 	struct rist_stats *stats_container = malloc(sizeof(struct rist_stats));
 	stats_container->stats_type = RIST_STATS_SENDER_PEER;
@@ -38,9 +65,12 @@ void rist_sender_peer_statistics(struct rist_peer *peer)
 
 	struct rist_bandwidth_estimation *cli_bw = &peer->bw;
 	struct rist_bandwidth_estimation *retry_bw = &peer->retry_bw;
+	struct rist_bandwidth_estimation *ts_nulls_bw = &peer->ts_nulls_bw;
+
 	// Refresh stats value just in case
 	rist_calculate_bitrate(0, cli_bw);
 	rist_calculate_bitrate(0, retry_bw);
+	rist_calculate_bitrate(0, ts_nulls_bw);
 
 	double Q = 100;
 	if (peer->stats_sender_instant.sent > 0)
@@ -58,6 +88,7 @@ void rist_sender_peer_statistics(struct rist_peer *peer)
 
 	size_t bitrate = cli_bw->eight_times_bitrate_fast / 8;
 	size_t retry_bitrate = retry_bw->eight_times_bitrate_fast / 8;
+	size_t ts_nulls_bitrate = ts_nulls_bw->eight_times_bitrate_fast / 8;
 	double avg_rtt = ((double)peer->eight_times_rtt / 8);
 
 	struct rist_common_ctx *cctx = get_cctx(peer);
@@ -72,10 +103,12 @@ void rist_sender_peer_statistics(struct rist_peer *peer)
 	cJSON *json_stats = cJSON_AddObjectToObject(peer_obj, "stats");
 	cJSON_AddNumberToObject(json_stats, "quality", Q);
 	cJSON_AddNumberToObject(json_stats, "sent", (double)peer->stats_sender_instant.sent);
+	cJSON_AddNumberToObject(json_stats, "ts_null", (double)peer->stats_sender_instant.ts_null);
 	cJSON_AddNumberToObject(json_stats, "received", (double)peer->stats_sender_instant.received);
 	cJSON_AddNumberToObject(json_stats, "retransmitted", (double)peer->stats_sender_instant.retrans);
 	cJSON_AddNumberToObject(json_stats, "bandwidth", (double)bitrate);
 	cJSON_AddNumberToObject(json_stats, "retry_bandwidth", (double)retry_bitrate);
+	cJSON_AddNumberToObject(json_stats, "ts_nulls_bandwidth", (double)ts_nulls_bitrate);
 	cJSON_AddNumberToObject(json_stats, "bandwidth_skipped", (double)peer->stats_sender_instant.bandwidth_skip);
 	cJSON_AddNumberToObject(json_stats, "bloat_skipped", (double)peer->stats_sender_instant.bloat_skip);
 	cJSON_AddNumberToObject(json_stats, "retransmit_skipped", (double)peer->stats_sender_instant.retrans_skip);
@@ -83,14 +116,7 @@ void rist_sender_peer_statistics(struct rist_peer *peer)
 	cJSON_AddNumberToObject(json_stats, "avg_rtt", (double)avg_rtt / RIST_CLOCK);
 	cJSON_AddNumberToObject(json_stats, "retry_buffer_size", (double)retry_buf_size);
 	cJSON_AddNumberToObject(json_stats, "cooldown_time", (double)time_left);
-	cJSON *udp_queue_obj = cJSON_AddObjectToObject(rist_sender_stats, "incoming_queue");
-	cJSON_AddNumberToObject(udp_queue_obj, "size", peer->sender_ctx->sender_queue_size);
-	cJSON_AddNumberToObject(udp_queue_obj, "bytesize", peer->sender_ctx->sender_queue_bytesize);
-	cJSON_AddNumberToObject(udp_queue_obj, "time_length", peer->sender_ctx->sender_queue_timelength);
-	if (peer->sender_ctx->sender_queue_timelength > 0)
-		cJSON_AddNumberToObject(udp_queue_obj, "packets_per_second", 1000 * peer->sender_ctx->sender_queue_size / peer->sender_ctx->sender_queue_timelength);
-	else
-		cJSON_AddNumberToObject(udp_queue_obj, "packets_per_second", 0);
+	cJSON *peer_duplicate = cJSON_Duplicate(peer_obj, true);
 	char *stats_string = cJSON_PrintUnformatted(stats);
 	cJSON_Delete(stats);
 
@@ -101,6 +127,7 @@ void rist_sender_peer_statistics(struct rist_peer *peer)
 	stats_container->stats.sender_peer.peer_id = peer->adv_peer_id;
 	stats_container->stats.sender_peer.bandwidth = bitrate;
 	stats_container->stats.sender_peer.retry_bandwidth = retry_bitrate;
+	//stats_container->stats.sender_peer.ts_nulls_bandwidth = ts_nulls_bitrate;
 	stats_container->stats.sender_peer.sent = peer->stats_sender_instant.sent;
 	stats_container->stats.sender_peer.received = peer->stats_sender_instant.received;
 	stats_container->stats.sender_peer.retransmitted = peer->stats_sender_instant.retrans;
@@ -114,6 +141,8 @@ void rist_sender_peer_statistics(struct rist_peer *peer)
 
 	memset(&peer->stats_sender_instant, 0, sizeof(peer->stats_sender_instant));
 	pthread_mutex_unlock(&(get_cctx(peer)->stats_lock));
+
+	return peer_duplicate;
 }
 
 void rist_receiver_flow_statistics(struct rist_receiver *ctx, struct rist_flow *flow)
@@ -159,13 +188,14 @@ void rist_receiver_flow_statistics(struct rist_receiver *ctx, struct rist_flow *
 		size_t bitrate = peer->bw.eight_times_bitrate_fast / 8;
 		size_t avg_bitrate = peer->bw.eight_times_bitrate / 8;
 		flow_sent_instant += peer->stats_receiver_instant.sent_rtcp;
-		flow_rtt =+ peer->eight_times_rtt / 8;
+		flow_rtt += (uint32_t)(peer->eight_times_rtt / 8);
 
 		cJSON *peer_obj = cJSON_CreateObject();
 		cJSON_AddNumberToObject(peer_obj, "id", peer->adv_peer_id);
 		cJSON_AddNumberToObject(peer_obj, "dead", peer->dead);
 		cJSON *peer_stats = cJSON_AddObjectToObject(peer_obj, "stats");
 		cJSON_AddNumberToObject(peer_stats, "received_data", (double)peer->stats_receiver_instant.received);
+		cJSON_AddNumberToObject(peer_stats, "ts_null", (double)peer->stats_receiver_instant.ts_null);	
 		cJSON_AddNumberToObject(peer_stats, "received_rtcp", (double)peer->stats_receiver_instant.received_rtcp);
 		cJSON_AddNumberToObject(peer_stats, "sent_rtcp", (double)peer->stats_receiver_instant.sent_rtcp);
 		cJSON_AddNumberToObject(peer_stats, "rtt", (double)peer->last_rtt / RIST_CLOCK);
@@ -260,6 +290,10 @@ void rist_receiver_flow_statistics(struct rist_receiver *ctx, struct rist_flow *
 	cJSON_AddNumberToObject(json_stats, "cur_inter_packet_spacing", (double)flow->stats_instant.cur_ips);
 	cJSON_AddNumberToObject(json_stats, "max_inter_packet_spacing", (double)flow->stats_instant.max_ips);
 	cJSON_AddNumberToObject(json_stats, "bitrate", (double)flow->bw.bitrate);
+	cJSON_AddNumberToObject(json_stats, "bitrate_retries", (double)flow->bw_retries.bitrate);
+	cJSON_AddNumberToObject(json_stats, "bitrate_rejected", (double)flow->bw_rejected.bitrate);
+	cJSON_AddNumberToObject(json_stats, "bitrate_ts_nulls", (double)flow->bw_tsnull.bitrate);
+	cJSON_AddNumberToObject(json_stats, "bitrate_payload", (double)flow->bw.bitrate + (double)flow->bw_tsnull.bitrate);
 
 	char *stats_string = cJSON_PrintUnformatted(stats);
 	cJSON_Delete(stats);
@@ -273,8 +307,8 @@ void rist_receiver_flow_statistics(struct rist_receiver *ctx, struct rist_flow *
 	stats_container->stats.receiver_flow.flow_id = flow->flow_id;
 	stats_container->stats.receiver_flow.status = flow->dead;
 	stats_container->stats.receiver_flow.bandwidth = flow->bw.bitrate;
-	//TODO: populate retry_bandwidth;
-	stats_container->stats.receiver_flow.retry_bandwidth = 0;
+	stats_container->stats.receiver_flow.retry_bandwidth = flow->bw_retries.bitrate;
+	//stats_container->stats.receiver_flow.ts_nulls_bandwidth = flow->bw_tsnull.bitrate;
 	stats_container->stats.receiver_flow.sent = flow->peer_lst_len ? flow_sent_instant / flow->peer_lst_len : 0;
 	stats_container->stats.receiver_flow.received = flow->stats_instant.received;
 	stats_container->stats.receiver_flow.missing = flow->stats_instant.missing;
