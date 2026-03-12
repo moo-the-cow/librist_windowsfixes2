@@ -76,7 +76,6 @@ int udpsocket_open(uint16_t af)
 	int sd = socket(af, SOCK_DGRAM, 0);
 	if (sd < 0) {
 #ifdef _WIN32
-		sd = -1 * WSAGetLastError();
 		int winerr = WSAGetLastError();
 		rist_log_priv3(RIST_LOG_ERROR, "socket() failed: errno=%d, WSAGetLastError=%d\n", errno, winerr);
 		sd = -1 * winerr;
