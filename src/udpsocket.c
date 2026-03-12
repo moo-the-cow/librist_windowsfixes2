@@ -323,7 +323,6 @@ int udpsocket_open_connect(const char *host, uint16_t port, const char *mciface)
 		int err = errno;
 		rist_log_priv3(RIST_LOG_ERROR, "connect() failed: %s\n", strerror(err));
 #endif
-		int err = errno;
 		udpsocket_close(sd);
 		return -1;
 	}
