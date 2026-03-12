@@ -14,6 +14,7 @@
 #ifndef MCAST_JOIN_GROUP
 #define MCAST_JOIN_GROUP 41
 #endif
+
 // Windows socket initialization
 static int winsock_initialized = 0;
 
@@ -71,7 +72,7 @@ int udpsocket_resolve_host(const char *host, uint16_t port, struct sockaddr *add
 int udpsocket_open(uint16_t af)
 {
 #ifdef _WIN32
-	initialize_winsock();
+    initialize_winsock();
 #endif
 	int sd = socket(af, SOCK_DGRAM, 0);
 	if (sd < 0) {
@@ -303,14 +304,15 @@ int udpsocket_open_connect(const char *host, uint16_t port, const char *mciface)
 		}
 	}
 #else
-
 	if (setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, (char *)&yes, sizeof(int)) < 0) {
 		/* Non-critical error */
-		rist_log_priv3( RIST_LOG_WARN,"Cannot set SO_REUSEADDR: %s\n", strerror(errno));
+		rist_log_priv3( RIST_LOG_WARN, "Cannot set SO_REUSEADDR: %s\n", strerror(errno));
 	}
+#endif
+
 	if (setsockopt(sd, proto, ttlcmd, (char *)&ttl, sizeof(ttl)) < 0) {
 		/* Non-critical error */
-		rist_log_priv3( RIST_LOG_WARN,"Cannot set socket MAX HOPS: %s\n", strerror(errno));
+		rist_log_priv3( RIST_LOG_WARN, "Cannot set socket MAX HOPS: %s\n", strerror(errno));
 	}
 	if (mciface && mciface[0] != '\0')
 		udpsocket_set_mcast_iface(sd, mciface, raw.sin6_family);
@@ -354,7 +356,8 @@ int udpsocket_open_bind(const char *host, uint16_t port, const char *mciface)
 		addrlen = sizeof(struct sockaddr_in);
 		is_multicast = IN_MULTICAST(ntohl(tmp->sin_addr.s_addr));
 	}
-// Windows-specific socket options
+	
+	// Windows-specific socket options
 #ifdef _WIN32
 	int exclusive = 1;
 	if (setsockopt(sd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char *)&exclusive, sizeof(exclusive)) < 0) {
@@ -371,6 +374,7 @@ int udpsocket_open_bind(const char *host, uint16_t port, const char *mciface)
 		rist_log_priv3( RIST_LOG_WARN, "Cannot set SO_REUSEADDR: %s\n", strerror(errno));
 	}
 #endif
+
 	if (bind(sd, (struct sockaddr *)&raw, addrlen) < 0)	{
 #ifdef _WIN32
 		int winerr = WSAGetLastError();
@@ -453,10 +457,10 @@ int udpsocket_close(int sd)
 #endif
 }
 
-int udpsocket_parse_url_parameters(char *url, udpsocket_url_param_t *params, int max_params,
+int udpsocket_parse_url_parameters(const char *url, udpsocket_url_param_t *params, int max_params,
 	uint32_t *clean_url_len)
 {
-	const char* query = NULL;
+	char* query = NULL;
 	int i = 0;
 	char *token = NULL;
 
@@ -472,7 +476,7 @@ int udpsocket_parse_url_parameters(char *url, udpsocket_url_param_t *params, int
 		return 0;
 
 	const char amp[2] = "&";
-	token = strtok( (char*)query + 1, amp );
+	token = strtok( query + 1, amp );
 	while (token != NULL && i < max_params) {
 		params[i].key = token;
 		params[i].val = NULL;
